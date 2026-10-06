@@ -1,0 +1,2 @@
+import { defineConfig } from '@playwright/test';
+export default defineConfig({ testDir:'./tests/browser', timeout:60000, workers:1, use:{ baseURL:'http://localhost:3000', headless:true, launchOptions:{ ...(process.env.CHROMIUM_PATH ? {executablePath:process.env.CHROMIUM_PATH} : {}), args:['--use-fake-ui-for-media-stream','--use-fake-device-for-media-stream','--autoplay-policy=no-user-gesture-required'] }, permissions:['camera','microphone'] }, webServer:{ command:'npm start',url:'http://localhost:3000/api/health',reuseExistingServer:!process.env.CI } });

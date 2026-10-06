@@ -51,4 +51,4 @@ For local use, build and run `npm start`, then open http://localhost:3000. Witho
 
 ## Verification and limits
 
-See TEST-RESULTS.md. This is a tested bugfix release, not a claim that every possible device or bug is covered. It has not been pushed to GitHub or deployed to your Render account by this session. No real Neon credentials or physical phones were used. End-to-end remote media still requires testing on the deployed site with functioning ICE/TURN networking.
+See ../TEST-RESULTS.md. This is a tested bugfix release, not a claim that every possible device or bug is covered. It has not been pushed to GitHub or deployed to your Render account by this session. No real Neon credentials or physical phones were used. End-to-end remote media still requires testing on the deployed site with functioning ICE/TURN networking.

@@ -1,0 +1,3 @@
+import {chromium} from '@playwright/test';
+const browser=await chromium.launch({headless:true,args:['--allow-loopback-in-peer-connection','--disable-features=WebRtcHideLocalIpsWithMdns','--force-webrtc-ip-handling-policy=default_public_and_private_interfaces']});const page=await browser.newPage();
+console.log(await page.evaluate(async()=>{const p=new RTCPeerConnection({iceServers:[]});const candidates=[];p.onicecandidate=e=>candidates.push(e.candidate?.candidate||'complete');p.createDataChannel('test');await p.setLocalDescription(await p.createOffer());await new Promise(r=>setTimeout(r,3000));const result={candidates,state:p.iceGatheringState};p.close();return result;}));await browser.close();

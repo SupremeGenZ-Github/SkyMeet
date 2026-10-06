@@ -1,0 +1,37 @@
+{
+  "name": "skymeet",
+  "version": "3.2.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "vite --host 0.0.0.0",
+    "server": "node --env-file-if-exists=.env server/index.js",
+    "build": "vite build",
+    "start": "node --env-file-if-exists=.env server/index.js",
+    "test": "node --test tests/*.test.js",
+    "test:browser": "playwright test bugfix.spec.js features.spec.js meeting.spec.js --grep-invert \"two real browser contexts\" && playwright test recovery.spec.js skymeet.spec.js && playwright test deployment.spec.js && playwright test meeting.spec.js --grep \"two real browser contexts\"",
+    "check": "npm run test && npm run build",
+    "prebuild": "node scripts/verify-assets.mjs",
+    "test:browser:regression": "playwright test bugfix.spec.js features.spec.js meeting.spec.js --grep-invert \"two real browser contexts\" && playwright test recovery.spec.js skymeet.spec.js && playwright test deployment.spec.js"
+  },
+  "dependencies": {
+    "@mediapipe/tasks-vision": "0.10.32",
+    "express": "^5.1.0",
+    "express-rate-limit": "^8.1.0",
+    "helmet": "^8.1.0",
+    "lucide-react": "^0.468.0",
+    "pg": "^8.16.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "socket.io": "^4.8.1",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.55.1",
+    "pg-mem": "^3.0.14",
+    "vite": "^7.1.0"
+  }
+}

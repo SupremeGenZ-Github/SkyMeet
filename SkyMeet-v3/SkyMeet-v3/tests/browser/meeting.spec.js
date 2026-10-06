@@ -1,0 +1,23 @@
+import { test, expect } from '@playwright/test';
+test('two real browser contexts: media, waiting room, chat, collaboration and end',async({browser,page})=>{
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.goto('/');await expect(page.getByRole('heading',{name:/Connect with purpose/})).toBeVisible();
+ await page.getByLabel('Your name',{exact:true}).fill('Team Host');await page.getByRole('button',{name:'Start a meeting'}).click();
+ await page.getByRole('button',{name:'Enable camera & mic'}).click();await expect(page.getByRole('button',{name:'Mute microphone',exact:true})).toBeVisible();
+ const link=page.url();await page.getByRole('button',{name:'Enter your room'}).click();await expect(page.getByRole('heading',{name:'Participants'})).toBeVisible();
+ const context=await browser.newContext({permissions:['camera','microphone']});const guest=await context.newPage();guest.on('pageerror',e=>errors.push(e.message));await guest.goto(link);
+ await guest.getByLabel('Your name',{exact:true}).fill('Team Guest');await guest.getByRole('button',{name:'Enable camera & mic'}).click();await expect(guest.getByRole('button',{name:'Mute microphone',exact:true})).toBeVisible();await guest.getByRole('button',{name:'Ask to join'}).click();await expect(guest.getByRole('heading',{name:'Waiting for the host'})).toBeVisible();
+ await page.getByRole('button',{name:'Admit',exact:true}).click();await expect(guest.getByTestId('video-tile')).toHaveCount(2);await expect(page.getByTestId('video-tile')).toHaveCount(2);
+ await expect.poll(()=>page.locator('[data-testid="video-tile"] video').evaluateAll(vs=>vs.filter(v=>v.srcObject && v.videoWidth>0).length),{timeout:20000}).toBe(2);
+ await expect.poll(()=>guest.locator('[data-testid="video-tile"] video').evaluateAll(vs=>vs.filter(v=>v.srcObject && v.videoWidth>0).length),{timeout:20000}).toBe(2);
+ await guest.getByRole('button',{name:'Chat',exact:true}).click();await guest.getByLabel('Chat message').fill('Team test message');await guest.getByRole('button',{name:'Send message'}).click();await page.getByRole('button',{name:'Chat',exact:true}).click();await expect(page.getByText('Team test message')).toBeVisible();
+ await guest.getByRole('button',{name:'Raise hand',exact:true}).click();await expect(page.locator('.hand-tag')).toHaveCount(1);
+ await page.getByRole('button',{name:'Notes',exact:true}).click();await page.getByLabel('Shared meeting notes').fill('Creator planning notes');await guest.getByRole('button',{name:'Notes',exact:true}).click();await expect(guest.getByLabel('Shared meeting notes')).toHaveValue('Creator planning notes');
+ await page.getByRole('button',{name:'Polls',exact:true}).click();await page.getByLabel('Question',{exact:true}).fill('Ready to stream?');await page.getByRole('button',{name:'Launch poll'}).click();await guest.getByRole('button',{name:'Polls',exact:true}).click();await guest.getByRole('button',{name:'Yes 0',exact:true}).click();await expect(page.getByRole('button',{name:'Yes 1',exact:true})).toBeVisible();
+ await page.getByRole('button',{name:'Participants',exact:true}).click();await page.getByRole('button',{name:'Mute',exact:true}).click();await expect(guest.getByRole('button',{name:'Unmute microphone',exact:true})).toBeVisible();
+ await guest.getByRole('button',{name:'Turn camera off',exact:true}).click();await expect(guest.getByRole('button',{name:'Turn camera on',exact:true})).toBeVisible();
+ await page.screenshot({path:'test-results/skymeet-meeting-desktop.png',fullPage:true});
+ page.on('dialog',d=>d.accept());await page.getByRole('button',{name:'End for all',exact:true}).click();await expect(guest.getByRole('heading',{name:'Thanks for meeting with us.'})).toBeVisible();
+ expect(errors).toEqual([]);await context.close();
+});
+test('landing mobile fits the viewport',async({page})=>{await page.setViewportSize({width:390,height:844});await page.goto('/');await expect(page.getByRole('button',{name:'Start a meeting'})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth)).toBe(true);await page.screenshot({path:'test-results/skymeet-mobile.png',fullPage:true});});
