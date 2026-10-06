@@ -1,6 +1,10 @@
-# SkyMeet v3.2.0 — deployment repair and recovery improvements
+# Connection patch: read CONNECTION-SETUP.md first
 
-This release uses the latest app in `SkyMeet-v3/`. The repository root now contains its own package.json and lockfile, so Render starts v3.2 rather than an older uploaded app folder.
+This release adds multiple STUN/TURN providers, managed Cloudflare credentials, stalled-negotiation recovery, and a relay test. Working relay credentials in Render are required for restricted networks.
+
+# SkyMeet v3.3.0 — deployment repair and recovery improvements
+
+This release uses the latest app in `SkyMeet-v3/`. The repository root now contains its own package.json and lockfile, so Render starts v3.3 rather than an older uploaded app folder.
 
 ## Update your existing GitHub repository and Render service
 
@@ -10,9 +14,9 @@ This release uses the latest app in `SkyMeet-v3/`. The repository root now conta
 4. Build: `npm ci --include=dev && npm run build`
 5. Start: `npm start`; health path: `/api/health`.
 6. Keep your existing Neon `DATABASE_URL`. Do not reset the database. Set NODE_ENV=production and NODE_VERSION=24.19.0. HOST_ACCESS_KEY is optional; leave it unset if you do not want an extra room-creation key. If APP_ORIGIN is set, it must match the deployed HTTPS origin with no trailing slash.
-7. Deploy the latest commit. Health must report version `3.2.0`; storage must be `postgresql` for permanent rooms. Close/reload old meeting tabs after upgrading.
+7. Deploy the latest commit. Health must report version `3.3.0`; storage must be `postgresql` for permanent rooms. Close/reload old meeting tabs after upgrading.
 
-A successful root start prints `skymeet-deploy@3.2.0`, followed by `skymeet@3.2.0` and a listening event with version 3.2.0. A missing .env message is normal when using Render environment variables.
+A successful root start prints `skymeet-deploy@3.3.0`, followed by `skymeet@3.3.0` and a listening event with version 3.3.0. A missing .env message is normal when using Render environment variables.
 
 ## What changed
 

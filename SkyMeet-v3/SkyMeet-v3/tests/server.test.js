@@ -49,3 +49,11 @@ test('reconnect, removal token revocation and cross-room signaling',async()=>{
  const other=await client();assert.equal((await emit(rejoined,'signal',{to:other.id,candidate:{candidate:'test'}})).ok,false);
  await emit(r.host,'control',{id:rejoined.id,action:'remove'});assert.equal((await emit(other,'join',{code:r.code,name:'Guest',resumeToken})).ok,false);
 });
+
+test('authenticated resume replaces a lingering socket without a duplicate participant',async()=>{
+ const r=await setup(),g=await guest(r);await admit(r,g.s);
+ const oldId=g.s.id;const next=await client();const admitted=once(next,'admitted');const oldEnded=once(g.s,'ended');
+ const response=await emit(next,'join',{code:r.code,name:'Resumed Guest',resumeToken:g.resumeToken});assert.equal(response.ok,true);await admitted;assert.match(await oldEnded,/resumed/);
+ const members=service.rooms.get(r.code).members;assert.equal(members.size,2);assert.equal(members.has(oldId),false);assert.equal(members.has(next.id),true);
+ assert.equal((await emit(next,'ice-config')).ok,true);
+});

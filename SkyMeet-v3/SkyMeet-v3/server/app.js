@@ -1,3 +1,4 @@
+import { createIceProvider } from './ice.js';
 import { version } from './version.js';
 import express from 'express';
 import { RoomStore, snapshot, restore } from './store.js';
@@ -18,6 +19,7 @@ const publicPeer = p => ({ id: p.id, name: p.name, role: p.role, hand: p.hand, m
 
 export function createApp(options = {}) {
   const env = { ...process.env, ...options.env };
+  const iceProvider=createIceProvider(env, {fetch:options.fetch});
   const store=options.store || new RoomStore(env.DATABASE_URL);
   const ready=store.init();
   let serial=Promise.resolve();
@@ -63,7 +65,7 @@ export function createApp(options = {}) {
   }, 60000);
   cleanup.unref();
   app.get('/api/health', (_req, res) => res.json({ ok: true, version, storage:store.durable?'postgresql':'temporary-memory' }));
-  app.get('/api/config', (_req, res) => res.json({ permanentRooms:store.durable, hostKeyRequired: !!env.HOST_ACCESS_KEY, maxParticipants: maximum, turnConfigured: !!(env.TURN_URLS && (env.TURN_SECRET || (env.TURN_USERNAME && env.TURN_PASSWORD))) }));
+  app.get('/api/config', (_req, res) => res.json({ permanentRooms:store.durable, hostKeyRequired: !!env.HOST_ACCESS_KEY, maxParticipants: maximum, ...iceProvider.summary() }));
   app.post('/api/rooms', rateLimit({ windowMs: 60000, limit: 8, standardHeaders: true, legacyHeaders: false }), async (req, res) => {
     await ready;
     if (req.body.permanent && !store.durable)return res.status(400).json({error:'Connect DATABASE_URL before creating a permanent room.'});
@@ -88,15 +90,6 @@ export function createApp(options = {}) {
     const report=await enqueue(async()=>{const r=await load(req.params.code);if(!r||typeof req.body.hostToken!=='string'||!equal(hash(req.body.hostToken).toString('hex'),r.hostHash))return null;return reports(r);});
     if(!report)return res.status(403).json({error:'Private host key required.'});res.json(report);
   });
-  function iceServers() {
-    const result = env.STUN_URL === 'none' ? [] : [{ urls: env.STUN_URL || 'stun:stun.l.google.com:19302' }];
-    if (env.TURN_URLS) {
-      const urls = env.TURN_URLS.split(',').map(s => s.trim());
-      if (env.TURN_SECRET) { const username = `${Math.floor(Date.now() / 1000) + 86400}:${randomBytes(6).toString('hex')}`; result.push({ urls, username, credential: createHmac('sha1', env.TURN_SECRET).update(username).digest('base64') }); }
-      else if (env.TURN_USERNAME && env.TURN_PASSWORD) result.push({ urls, username: env.TURN_USERNAME, credential: env.TURN_PASSWORD });
-    }
-    return result;
-  }
   io.on('connection', socket => {
     let tick = Date.now(), count = 0;
     socket.use((_packet, next) => { if (Date.now() - tick > 10000) { tick = Date.now(); count = 0; } if (++count > 400) return next(new Error('Too many messages.')); next(); });
@@ -106,16 +99,18 @@ export function createApp(options = {}) {
       if (host && p.role === 'guest') throw new Error('Host permission required.');
       return { r, p };
     }
-    function on(event, fn) { socket.on(event,(data,ack)=>{const run=async()=>{const roomCode=socket.data.code;const result=await fn(data||{});if(!['signal','media','reaction','cursor','attendance','board-get'].includes(event))await persist(rooms.get(socket.data.code||roomCode));return result;};
-      (['signal','media','reaction','cursor'].includes(event)?Promise.resolve().then(run):enqueue(run)).then(result=>{if(typeof ack==='function')ack({ok:true,...result});}).catch(e=>{if(typeof ack==='function')ack({ok:false,error:e.message});if(!e.message || /database|connect|timeout|ECONN|relation|SSL/i.test(e.message))socket.emit('storage-error','Saving failed. Check the database and export your board before leaving.');});
+    function on(event, fn) { socket.on(event,(data,ack)=>{const run=async()=>{const roomCode=socket.data.code;const result=await fn(data||{});if(!['signal','media','reaction','cursor','attendance','board-get','ice-config'].includes(event))await persist(rooms.get(socket.data.code||roomCode));return result;};
+      (['signal','media','reaction','cursor','ice-config'].includes(event)?Promise.resolve().then(run):enqueue(run)).then(result=>{if(typeof ack==='function')ack({ok:true,...result});}).catch(e=>{if(typeof ack==='function')ack({ok:false,error:e.message});if(!e.message || /database|connect|timeout|ECONN|relation|SSL/i.test(e.message))socket.emit('storage-error','Saving failed. Check the database and export your board before leaving.');});
     }); }
-    function admit(r, s, p) {
+    async function admit(r, s, p) {
+      const ice = await iceProvider.get();
+      if (!s.connected) throw Error('Participant disconnected. Please retry.');
       if (r.members.size >= maximum) throw new Error(`This meeting is limited to ${maximum} participants.`);
       r.waiting.delete(s.id); r.members.set(s.id, p); r.emptySince = null;
       s.join(r.code); s.data.code = r.code;
       p.joinedAt=Date.now();r.attendance.push({id:p.id,personId:p.personId,meetingId:r.meetingId,name:p.name,joinedAt:p.joinedAt,lastSeen:p.joinedAt,leftAt:null,endReason:''});
       if(r.poll?.creatorSession===p.sessionId){r.poll.creatorId=p.id;io.to(r.code).emit('poll',publicPoll(r.poll));}
-      s.emit('admitted', { selfId: s.id, iceServers: iceServers(), messages: r.messages, board: r.board, notes: r.notes, notesRevision:r.notesRevision||0, poll: publicPoll(r.poll), whiteboard:boardState(r) });
+      s.emit('admitted', { selfId: s.id, ...ice, messages: r.messages, board: r.board, notes: r.notes, notesRevision:r.notesRevision||0, poll: publicPoll(r.poll), whiteboard:boardState(r) });
       emitState(r);
     }
     on('join', async d => {
@@ -136,7 +131,10 @@ export function createApp(options = {}) {
       const resumeKey = clean(d.resumeToken, 128);
       const session = resumeKey ? r.sessions.get(hash(resumeKey).toString('hex')) : null;
       if (session?.banned) throw new Error('You were removed from this meeting.');
-      if (session && [...r.members.values()].some(p => p.sessionId === session.id)) throw new Error('This session is already connected.');
+      if (session) {
+        const previous = [...r.members.values(),...r.waiting.values()].find(p=>p.sessionId===session.id);
+        if(previous) { const old=io.sockets.sockets.get(previous.id); if(old){leave(old);old.emit('ended','Your session resumed in another connection.');old.disconnect(true);} }
+      }
       if (owner && [...r.members.values()].some(p => p.role === 'host')) throw new Error('Host is already connected.');
       if (!owner && !session && r.locked) throw new Error('This meeting is locked.');
       if (!owner && !session && r.passwordHash && !equal(safePassword(clean(d.password, 128)), r.passwordHash)) throw new Error('Incorrect meeting password.');
@@ -146,13 +144,14 @@ export function createApp(options = {}) {
       const role = owner ? 'host' : session?.role || 'guest';
       const p = { id: socket.id, name, role, sessionId, personId:hash(r.code+':'+(clean(d.participantKey,128)||sessionId)).toString('hex').slice(0,24), hand: false, mic: false, camera: false, sharing: false, recording: false, joinedAt: Date.now() };
       r.sessions.set(sessionId, { id: sessionId, role, admitted: owner || !!session?.admitted, banned: false });
-      if (owner || session?.admitted) admit(r, socket, p);
+      if (owner || session?.admitted) await admit(r, socket, p);
       else { socket.data.code = r.code; r.waiting.set(socket.id, p); socket.emit('waiting-room'); emitState(r); }
       return { resumeToken: secret };
     });
-    on('admit', d => { const { r } = context(true); const p = r.waiting.get(d.id); const s = io.sockets.sockets.get(d.id); if (!p || !s) throw new Error('Participant has left.'); admit(r, s, p); r.sessions.get(p.sessionId).admitted = true; });
+    on('admit', async d => { const { r } = context(true); const p = r.waiting.get(d.id); const s = io.sockets.sockets.get(d.id); if (!p || !s) throw new Error('Participant has left.'); await admit(r, s, p); r.sessions.get(p.sessionId).admitted = true; });
     on('reject', d => { const { r } = context(true); const p = r.waiting.get(d.id); if (!p) return; const s = io.sockets.sockets.get(d.id); s?.emit('ended', 'The host declined your request.'); if (s) s.data = {}; r.waiting.delete(d.id); r.sessions.delete(p.sessionId); emitState(r); });
-    on('signal', d => { const { r } = context(); if (!r.members.has(d.to) || d.to === socket.id) throw new Error('Invalid recipient.'); if (!d.description && !d.candidate && d.restart!==true) throw new Error('Invalid signal.'); io.to(d.to).emit('signal', { from: socket.id, description: d.description, candidate: d.candidate, restart:d.restart===true }); });
+    on('ice-config', () => { context(); return iceProvider.get(); });
+    on('signal', d => { const { r } = context(); if (!r.members.has(d.to) || d.to === socket.id) throw new Error('Invalid recipient.'); if (!d.description && !d.candidate && d.restart!==true) throw new Error('Invalid signal.'); io.to(d.to).emit('signal', { from: socket.id, description: d.description, candidate: d.candidate, restart:d.restart===true, epoch:clean(d.epoch,80) }); });
     on('media', d => { const { r, p } = context();
       if(d.sharing===true&&p.role==='guest'&&!r.shareEnabled)throw Error('Screen sharing is disabled by the host.');
       if(d.recording===true && p.role==='guest' && r.recordingEnabled===false)throw Error('Participant recording is disabled by the host.');
