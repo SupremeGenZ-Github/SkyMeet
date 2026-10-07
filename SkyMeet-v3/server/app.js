@@ -68,7 +68,7 @@ export function createApp(options = {}) {
     if (req.body.permanent && !store.durable)return res.status(400).json({error:'Connect DATABASE_URL before creating a permanent room.'});
     if (env.HOST_ACCESS_KEY && !equal(clean(req.body.hostKey, 256), env.HOST_ACCESS_KEY)) return res.status(403).json({ error: 'Incorrect host access key.' });
     if (rooms.size >= (Number(env.MAX_ROOMS) || 100)) return res.status(503).json({ error: 'Server is at capacity. Please try later.' });
-    const code = randomBytes(9).toString('hex').match(/.{6}/g).join('-');
+    let code; do {   code = randomBytes(5).toString('hex'); } while (await load(code));
     const hostToken = token();
     const password = clean(req.body.password, 128);
     const r = { code, title: clean(req.body.title) || 'Team meeting', hostHash: hash(hostToken).toString('hex'), passwordHash: password ? safePassword(password) : '', createdAt: Date.now(), emptySince: Date.now(), locked: false, chatEnabled: true, shareEnabled: true, recordingEnabled:true, participantPollsEnabled:true, members: new Map(), waiting: new Map(), sessions: new Map(), attendance: [], messages: [], board: [], notes: '', poll: null };
